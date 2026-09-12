@@ -1,0 +1,99 @@
+# Frigate NVR Project
+
+Standalone Frigate NVR setup on a home Ubuntu box, starting with one Tapo C211
+indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
+
+## Host
+
+- Ubuntu 24.04.1 LTS, kernel 6.17.0-22-generic
+- CPU: Intel Core i7-7700 @ 3.60GHz (4c/8t) — no usable Intel iGPU (not visible
+  on the PCI bus at all, likely disabled in BIOS since a discrete GPU is
+  installed). If the Nvidia GPU has to be abandoned, the fallback detector is
+  CPU-only, not OpenVINO, unless the iGPU is re-enabled in BIOS.
+- RAM: 15GiB
+- GPU: NVIDIA GeForce GTX 1070, 8GB VRAM (Pascal). Driver 580.173.02 via
+  nvidia-dkms-550 (the apt-provided prebuilt kernel module didn't exist for
+  this kernel version, so DKMS builds it from source — this should
+  auto-rebuild on future kernel upgrades via DKMS's kernel hook, but if
+  `nvidia-smi` ever breaks after a kernel update, check `dkms status` first).
+  Confirmed working both on the host and passed through into Docker
+  containers (`docker run --gpus all ...`).
+- Docker 27.4.0 + Compose plugin v2.31.0. nvidia-container-toolkit confirmed
+  working.
+- Network: wired `enp3s0` (192.168.68.130/24) and wifi `wlp4s0`, both on the
+  192.168.68.0/24 LAN. Tailscale already installed and connected
+  (100.104.115.71) — use this for remote access, never port-forward Frigate.
+
+## Storage
+
+- `/mnt/nvr` — dedicated ext4 partition, `/dev/sda3`, 442G (UUID
+  `f73bca0e-0782-40b2-bbbf-e4b4a568489c`), mounted via `/etc/fstab`, owned by
+  `mamad`. This is where Frigate recordings live.
+- This partition was carved out of a 1.4TB leftover partition (originally an
+  old Ubuntu install's `/home` from 2018/2019) on the same physical 2TB HDD
+  (`ST2000DM001`, `/dev/sda`) that also holds the Windows partitions, the EFI
+  partition, and the current Ubuntu root (`/`). Only `sda3`'s end boundary was
+  moved — `sda4` (EFI) and `sda5` (root) are untouched.
+- ~940GB of that HDD is left unallocated on purpose, deliberately not given to
+  this project, for other future use.
+- The old home directory's data (14GB — mostly `Downloads` and old CUDA 10.0
+  samples, nothing that looked important) was backed up to
+  `~/old-home-2019-backup` before the partition was reformatted. Safe to
+  delete once reviewed.
+
+## Camera
+
+- One TP-Link Tapo C211, indoor pan/tilt. Not yet unboxed (runbook Step 02
+  pending).
+- RTSP on port 554, substreams at `/stream1` (main) and `/stream2` (sub).
+- ONVIF on port 2020.
+- Credentials will be the camera's own "Camera Account" (set in the Tapo app),
+  not the TP-Link cloud login.
+
+## Decisions already made
+
+- Standalone Frigate, no Home Assistant.
+- Detect on the sub stream, record the main stream with no re-encode.
+- Retention: continuous 7 days, motion 30 days, alerts 60 days.
+- Alerts via Telegram, using the `frigate-notify` container.
+- Camera's Motion Tracking feature stays off — zones are drawn once against a
+  static framing (a saved "home" preset).
+
+## Conventions
+
+- Every config change is a git commit, with a message that says what changed
+  and why.
+- Secrets only ever go in `.env`, never committed, never in a Frigate URL
+  (Telegram renders credentialed links unclickable anyway).
+- Never expose Frigate to the internet. Tailscale (already set up) or
+  WireGuard only.
+
+## Future / open items
+
+- **OpenVINO fallback — investigate before assuming it's unavailable.** No
+  Intel iGPU currently shows up in `lspci` at all (likely disabled in BIOS,
+  not physically absent — this is a Kaby Lake/LGA1151 board, which commonly
+  supports running the iGPU alongside a discrete GPU via a BIOS setting like
+  "iGPU Multi-Monitor" or "Primary Display: Auto/IGPU/PEG"). Two separate
+  things to check if the GTX 1070 turns out to be unreliable under Frigate
+  (Step 06):
+  1. Check BIOS for that setting — if enabled, the iGPU should reappear in
+     `lspci` and become usable as Frigate's OpenVINO GPU device.
+  2. Independent of the iGPU: OpenVINO's CPU backend is a distinct option
+     from Frigate's default plain-CPU (tflite) detector and is typically
+     faster. Worth benchmarking against the GTX 1070's numbers in Step 06
+     rather than treating "no iGPU" as "no OpenVINO."
+
+## Runbook checklist
+
+- [x] 01. Survey the Ubuntu box (Docker confirmed, `/mnt/nvr` mounted, GPU
+      passthrough confirmed working)
+- [ ] 02. Camera out of the box — all app work (by hand)
+- [ ] 03. Prove the streams before Frigate exists
+- [ ] 04. Prove ONVIF pan/tilt
+- [ ] 05. Frigate up, detection only, no recording
+- [ ] 06. Settle the detector
+- [ ] 07. Turn on recording and let it run a day
+- [ ] 08. Home preset, then zones
+- [ ] 09. Telegram
+- [ ] 10. Tune for a week, then scale
