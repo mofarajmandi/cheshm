@@ -1,3 +1,4 @@
 .env
 config/model_cache/
 *.db
+.venv*/

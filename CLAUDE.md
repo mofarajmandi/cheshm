@@ -40,15 +40,31 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
   samples, nothing that looked important) was backed up to
   `~/old-home-2019-backup` before the partition was reformatted. Safe to
   delete once reviewed.
+- Measured storage math (Step 03): main stream (what gets recorded) runs
+  ~1.09Mbps -> ~11.75GB/day/camera continuous. A 7-day continuous window for
+  3 cameras (the eventual plan) is only ~245GB, comfortably inside the 420GB
+  free here even before accounting for the smaller motion/alert tiers.
 
 ## Camera
 
-- One TP-Link Tapo C211, indoor pan/tilt. Not yet unboxed (runbook Step 02
-  pending).
-- RTSP on port 554, substreams at `/stream1` (main) and `/stream2` (sub).
-- ONVIF on port 2020.
-- Credentials will be the camera's own "Camera Account" (set in the Tapo app),
-  not the TP-Link cloud login.
+- One TP-Link Tapo C211, indoor pan/tilt. Firmware `1.2.7 Build 260818
+  Rel.64715n`, serial `7461f574`. Unboxed and on the network (Step 02 done).
+- RTSP on port 554: `/stream1` (main, 2304x1296, ~15fps, ~1.09Mbps incl.
+  audio) and `/stream2` (sub, 1280x720, ~15fps, ~190kbps incl. audio). Both
+  H.264 + PCM A-law audio. A third profile, `jpegStream` (640x360), also
+  exists via ONVIF media profiles but isn't used by the plan.
+- ONVIF on port 2020. Confirmed working: device info, media profiles, and PTZ
+  all respond correctly. `onvif-zeep` needs a monkey-patch for a
+  known `AnySimpleType.pytonvalue()` incompatibility with modern `zeep` --
+  see `scripts/onvif_ptz_test.py`.
+- **PTZ confirmed working** (Step 04 done) -- `ContinuousMove` physically
+  pans the camera. Note: the PTZ node only exposes *generic* (normalized)
+  velocity/position/translation spaces, not the FOV-calibrated
+  `TranslationSpaceFov` space that Frigate's autotracking feature relies on.
+  Not a blocker here since the plan uses a static home preset + fixed zones,
+  not autotracking.
+- Credentials are the camera's own "Camera Account" (set in the Tapo app),
+  not the TP-Link cloud login. Stored in `.env`, never in chat or in the repo.
 
 ## Decisions already made
 
@@ -88,9 +104,9 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
 
 - [x] 01. Survey the Ubuntu box (Docker confirmed, `/mnt/nvr` mounted, GPU
       passthrough confirmed working)
-- [ ] 02. Camera out of the box — all app work (by hand)
-- [ ] 03. Prove the streams before Frigate exists
-- [ ] 04. Prove ONVIF pan/tilt
+- [x] 02. Camera out of the box — all app work (by hand)
+- [x] 03. Prove the streams before Frigate exists
+- [x] 04. Prove ONVIF pan/tilt (camera physically moved via ContinuousMove)
 - [ ] 05. Frigate up, detection only, no recording
 - [ ] 06. Settle the detector
 - [ ] 07. Turn on recording and let it run a day
