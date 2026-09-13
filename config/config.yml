@@ -46,6 +46,11 @@ record:
 
 cameras:
   cam1: # rename to something meaningful once you've picked a spot for it
+    onvif:
+      host: "{FRIGATE_CAMERA_IP}"
+      port: 2020
+      user: "{FRIGATE_RTSP_USER}"
+      password: "{FRIGATE_RTSP_PASS}"
     ffmpeg:
       inputs:
         - path:
