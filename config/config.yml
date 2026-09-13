@@ -1,0 +1,44 @@
+# Step 05 of the Sentry Runbook: minimal config, one camera, detection only,
+# no recording. Deliberately no go2rtc, no GPU detector, no MQTT yet -- those
+# come in later steps once this baseline is proven to work.
+#
+# Credentials are injected as container env vars (FRIGATE_RTSP_USER,
+# FRIGATE_RTSP_PASS, FRIGATE_CAMERA_IP) via docker-compose.yml, which reads
+# them from .env. Nothing sensitive lives in this file.
+
+mqtt:
+  enabled: false
+  host: 127.0.0.1
+
+detectors:
+  onnx:
+    type: onnx
+
+model:
+  model_type: yolo-generic
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/yolo.onnx
+  labelmap_path: /labelmap/coco-80.txt
+
+cameras:
+  cam1: # rename to something meaningful once you've picked a spot for it
+    ffmpeg:
+      inputs:
+        - path: 
+            rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASS}@{FRIGATE_CAMERA_IP}:554/stream2
+          input_args: preset-rtsp-generic
+          roles:
+            - detect
+    detect:
+      enabled: true
+      width: 1280
+      height: 720
+      fps: 5
+    record:
+      enabled: false
+    snapshots:
+      enabled: false
+version: 0.18-0

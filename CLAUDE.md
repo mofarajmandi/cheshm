@@ -66,6 +66,29 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
 - Credentials are the camera's own "Camera Account" (set in the Tapo app),
   not the TP-Link cloud login. Stored in `.env`, never in chat or in the repo.
 
+## Frigate / detector (Step 06 -- settled)
+
+- Frigate 0.18.0, image `ghcr.io/blakeblackshear/frigate:stable-tensorrt`.
+- Detector: `onnx` type, running on the GPU via onnxruntime's CUDA/TensorRT
+  execution provider. **Not** the `tensorrt` detector type -- that plugin was
+  removed for amd64 in 0.18 ("no longer supported on amd64, use ONNX
+  instead"); it still exists in the docs because it's still used on Jetson.
+- Model: YOLOv9-s at 320x320, exported to ONNX manually. On amd64 there is no
+  more automatic `YOLO_MODELS`-driven download/convert-at-startup for the
+  onnx path -- you have to export the model yourself and place it at
+  `config/model_cache/yolo.onnx`. The export command is saved at
+  `scripts/yolov9-export.Dockerfile`; run it with:
+  `docker build . -f scripts/yolov9-export.Dockerfile --build-arg MODEL_SIZE=s --build-arg IMG_SIZE=320 --output .`
+  then move the resulting `yolov9-s-320.onnx` to `config/model_cache/yolo.onnx`.
+  Note: `config/model_cache/` ends up owned by `root` (Frigate's container
+  creates it), so `sudo chown mamad:mamad config/model_cache` before moving
+  the file in.
+- **Confirmed stable**: ~12.3-12.5ms inference speed, ~10% detector CPU,
+  ~5% GPU usage, no CUDA errors over 90 minutes of continuous running. Pascal
+  is not a problem for this GPU/model/image combination.
+- `config/model_cache/` is gitignored (regenerable via the Dockerfile above,
+  no need to commit a 28MB binary).
+
 ## Decisions already made
 
 - Standalone Frigate, no Home Assistant.
@@ -107,8 +130,8 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
 - [x] 02. Camera out of the box — all app work (by hand)
 - [x] 03. Prove the streams before Frigate exists
 - [x] 04. Prove ONVIF pan/tilt (camera physically moved via ContinuousMove)
-- [ ] 05. Frigate up, detection only, no recording
-- [ ] 06. Settle the detector
+- [x] 05. Frigate up, detection only, no recording
+- [x] 06. Settle the detector (onnx + GPU, ~12.4ms, stable 90min)
 - [ ] 07. Turn on recording and let it run a day
 - [ ] 08. Home preset, then zones
 - [ ] 09. Telegram

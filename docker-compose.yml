@@ -1,0 +1,23 @@
+services:
+  frigate:
+    container_name: frigate
+    image: ghcr.io/blakeblackshear/frigate:stable-tensorrt
+    restart: unless-stopped
+    shm_size: "256mb" # bump this later if Frigate logs a shared-memory warning
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      FRIGATE_RTSP_USER: ${CAMERA_RTSP_USER}
+      FRIGATE_RTSP_PASS: ${CAMERA_RTSP_PASS}
+      FRIGATE_CAMERA_IP: ${CAMERA_IP}
+    ports:
+      - "5000:5000" # older/internal UI
+      - "8971:8971" # authenticated UI (Frigate 0.14+)
+    volumes:
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro

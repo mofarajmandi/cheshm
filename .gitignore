@@ -1,4 +1,9 @@
 .env
-config/model_cache/
 *.db
 .venv*/
+
+# Frigate writes a lot of runtime state (db files, a JWT signing secret,
+# model cache, exports, backups...) into config/. Only track what we
+# actually authored by hand.
+config/*
+!config/config.yml
