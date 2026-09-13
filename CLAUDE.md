@@ -132,7 +132,10 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
 - [x] 04. Prove ONVIF pan/tilt (camera physically moved via ContinuousMove)
 - [x] 05. Frigate up, detection only, no recording
 - [x] 06. Settle the detector (onnx + GPU, ~12.4ms, stable 90min)
-- [ ] 07. Turn on recording and let it run a day
+- [ ] 07. Turn on recording and let it run a day -- **in progress**, started
+      2026-09-13 14:38. Recording confirmed landing on `/mnt/nvr` correctly.
+      Check back after 24h: scrub through yesterday's footage in the UI, and
+      confirm measured GB/day is within ~20% of the ~11.75GB/day estimate.
 - [ ] 08. Home preset, then zones
 - [ ] 09. Telegram
 - [ ] 10. Tune for a week, then scale

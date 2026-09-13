@@ -21,3 +21,4 @@ services:
     volumes:
       - ./config:/config
       - /etc/localtime:/etc/localtime:ro
+      - /mnt/nvr:/media/frigate/recordings
