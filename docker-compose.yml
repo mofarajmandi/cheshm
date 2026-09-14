@@ -21,7 +21,16 @@ services:
     volumes:
       - ./config:/config
       - /etc/localtime:/etc/localtime:ro
-      - /mnt/nvr:/media/frigate/recordings
+      # Mount the NVR disk at Frigate's media ROOT, not at recordings/.
+      # /media/frigate holds recordings/, clips/ and exports/ -- mounting one
+      # level deeper left clips/ (review previews, event thumbs, snapshots) on
+      # the container's writable overlay layer: it consumed the 209G OS disk
+      # instead of this 442G one, and was destroyed on every container
+      # recreate. In-container paths are unchanged by this, so the paths
+      # stored in frigate.db (recordings.path, previews.path,
+      # reviewsegment.thumb_path) stay valid -- the host data was moved to
+      # match, into /mnt/nvr/recordings and /mnt/nvr/clips.
+      - /mnt/nvr:/media/frigate
 
   frigate-notify:
     container_name: frigate-notify

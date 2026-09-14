@@ -123,30 +123,47 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
      faster. Worth benchmarking against the GTX 1070's numbers in Step 06
      rather than treating "no iGPU" as "no OpenVINO."
 
-## Known issue: the media mount is one level too deep (not yet fixed)
+## Media layout on /mnt/nvr (mount fixed 2026-09-14)
 
-`docker-compose.yml` mounts `/mnt/nvr:/media/frigate/recordings`. Frigate's
-media root is `/media/frigate`, with `recordings/`, `clips/` and `exports/`
-under it -- so only `recordings/` is on the NVR partition. `clips/` (review
-previews, thumbs, and snapshots if they're ever enabled) lives in the
-container's **writable overlay layer** instead:
+The NVR disk is mounted at Frigate's media **root**: `/mnt/nvr:/media/frigate`.
+Everything Frigate writes now lives on `sda3`:
 
 ```
-/dev/sda3  442G  /media/frigate/recordings   <- the mount
-overlay    209G  /media/frigate/clips        <- 103M of previews, on the OS disk
+/mnt/nvr/recordings/<date>/<hour>/<camera>/  video segments
+/mnt/nvr/clips/previews/                     hourly timeline preview mp4s
+/mnt/nvr/clips/review/                       review-item thumbs (.webp)
+/mnt/nvr/clips/thumbs/                       per-event thumbs (.webp)
+/mnt/nvr/clips/preview_restart_cache/        written at shutdown, consumed at boot
+/mnt/nvr/exports/                            manual exports
 ```
 
-Two consequences: it consumes the 209G root filesystem rather than the 442G
-NVR disk, and **everything under `clips/` is destroyed on any container
-recreate** (`docker compose down`, an image pull, a compose edit) -- a plain
-`restart` is safe. Today that only costs UI timeline previews, but it blocks
-enabling snapshots, which is the proper fallback for the `recheck_delay` issue
-above.
+It was originally mounted one level deeper, at
+`/mnt/nvr:/media/frigate/recordings`, which left `clips/` on the container's
+**writable overlay layer** -- on the 209G OS disk instead of this 442G one,
+and destroyed on any container *recreate* (`docker compose down`, an image
+pull, a compose edit; a plain `restart` was safe). It had accumulated 124MB of
+previews and thumbs there. That also blocked enabling snapshots, since those
+land in `clips/` too.
 
-Fixing it means changing the mount to `/mnt/nvr:/media/frigate` *and*
-migrating the existing date dirs into a new `/mnt/nvr/recordings/` -- Frigate
-must be stopped for this, and it will lose sight of all existing footage if
-the move is done wrong. Deferred deliberately; do it alongside Step 10.
+**Why the migration was safe, and the invariant to preserve:** every path
+Frigate stores in `frigate.db` (`recordings.path`, `previews.path`,
+`reviewsegment.thumb_path`, and `export.video_path`/`thumb_path`) is a
+*container-side* `/media/frigate/...` path. Moving the mount up a level while
+moving the host data down a level into `recordings/` leaves those paths
+byte-identical, so no DB rewrite was needed -- all 10,019 stored paths were
+verified resolving afterwards. **If this mount is ever changed again, keep
+that invariant**, or Frigate silently loses sight of all existing footage
+while the files are still on disk.
+
+Two notes:
+
+- `/mnt/nvr/lost+found` is now visible to Frigate as
+  `/media/frigate/lost+found`. It ignores it.
+- The host dirs are `root:root` because Frigate runs as uid 0 in-container.
+  `mv`-ing them as `mamad` fails with EPERM (renaming a directory needs write
+  permission on the directory itself, to update `..`). Do such moves inside a
+  throwaway root container -- `docker run --rm -v /mnt/nvr:/data --entrypoint
+  /bin/bash <frigate-image> -c '...'` -- rather than reaching for sudo.
 
 ## Notifications (Step 09 -- working)
 
@@ -175,8 +192,11 @@ the move is done wrong. Deferred deliberately; do it alongside Step 10.
   **~12s behind live**. frigate-notify's `GetClip` only retries on 404, not
   400, so it gave up instantly. Its next fallback is the snapshot, which is
   also unavailable here (`snapshots: enabled: false`), so it dropped to a
-  plain-text message. The 20s delay clears the segment lag; alert latency goes
-  from ~15s to ~60s worst case (30s poll + 20s delay), which is fine here.
+  plain-text message. Enabling Frigate snapshots would restore that fallback
+  as belt-and-braces -- the mount fix above unblocked it, so it's now just a
+  config change, but it hasn't been done yet. The 20s delay clears the segment
+  lag; alert latency goes from ~15s to ~60s worst case (30s poll + 20s delay),
+  which is fine here.
 - Restarting the container clears the dedup cache, so an event that is still
   in progress across the restart will notify a second time. Harmless, but
   expect one duplicate per restart.
