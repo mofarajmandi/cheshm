@@ -123,6 +123,31 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
      faster. Worth benchmarking against the GTX 1070's numbers in Step 06
      rather than treating "no iGPU" as "no OpenVINO."
 
+## Known issue: the media mount is one level too deep (not yet fixed)
+
+`docker-compose.yml` mounts `/mnt/nvr:/media/frigate/recordings`. Frigate's
+media root is `/media/frigate`, with `recordings/`, `clips/` and `exports/`
+under it -- so only `recordings/` is on the NVR partition. `clips/` (review
+previews, thumbs, and snapshots if they're ever enabled) lives in the
+container's **writable overlay layer** instead:
+
+```
+/dev/sda3  442G  /media/frigate/recordings   <- the mount
+overlay    209G  /media/frigate/clips        <- 103M of previews, on the OS disk
+```
+
+Two consequences: it consumes the 209G root filesystem rather than the 442G
+NVR disk, and **everything under `clips/` is destroyed on any container
+recreate** (`docker compose down`, an image pull, a compose edit) -- a plain
+`restart` is safe. Today that only costs UI timeline previews, but it blocks
+enabling snapshots, which is the proper fallback for the `recheck_delay` issue
+above.
+
+Fixing it means changing the mount to `/mnt/nvr:/media/frigate` *and*
+migrating the existing date dirs into a new `/mnt/nvr/recordings/` -- Frigate
+must be stopped for this, and it will lose sight of all existing footage if
+the move is done wrong. Deferred deliberately; do it alongside Step 10.
+
 ## Notifications (Step 09 -- working)
 
 - `frigate-notify` (separate container, `ghcr.io/0x2142/frigate-notify`)
@@ -142,6 +167,19 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
 - It de-duplicates per zone, so a single ongoing event notifies once rather
   than on every poll. With no zones drawn yet the zone is empty; revisit the
   zone filters in `frigate-notify/config.yml` once Step 08 lands.
+- **`recheck_delay: 20` is load-bearing, don't remove it.** Without it ~27% of
+  Telegram alerts arrived as bare text with no video. Frigate's
+  `/api/events/<id>/clip.mp4` returns **400** ("No recordings found for the
+  specified time range", `frigate/api/media.py`) until the recording segments
+  covering the event are committed to the `recordings` table -- measured at
+  **~12s behind live**. frigate-notify's `GetClip` only retries on 404, not
+  400, so it gave up instantly. Its next fallback is the snapshot, which is
+  also unavailable here (`snapshots: enabled: false`), so it dropped to a
+  plain-text message. The 20s delay clears the segment lag; alert latency goes
+  from ~15s to ~60s worst case (30s poll + 20s delay), which is fine here.
+- Restarting the container clears the dedup cache, so an event that is still
+  in progress across the restart will notify a second time. Harmless, but
+  expect one duplicate per restart.
 
 ## Boot & power resilience (Step 11 -- pending)
 

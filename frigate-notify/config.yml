@@ -17,6 +17,15 @@ alerts:
     # Only notify on Frigate's "alerts" review items, not plain "detections" --
     # keeps the channel from being noisy before zones/tuning (Steps 08, 10).
     notify_detections: false
+    # Wait before re-fetching the review, so the clip is actually fetchable.
+    # Frigate's /api/events/<id>/clip.mp4 returns 400 ("No recordings found for
+    # the specified time range") until the covering recording segments are
+    # committed to the `recordings` table -- measured at ~12s behind live.
+    # frigate-notify only retries clip fetches on 404, not 400, so it gave up
+    # immediately and fell back to a text-only Telegram message (no snapshot
+    # fallback either, since Frigate snapshots are disabled). 20s clears the
+    # lag with margin, at the cost of 20s of added alert latency.
+    recheck_delay: 20
   zones:
     # No zones drawn yet (Step 08 pending), so don't filter by zone.
     unzoned: allow
