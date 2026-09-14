@@ -1,0 +1,25 @@
+# Secrets (frigate.username/password, alerts.telegram.token/chatid) are
+# intentionally NOT set here -- they're injected via FN_-prefixed env vars
+# in docker-compose.yml (frigate-notify maps FN_A__B__C -> a.b.c). Nothing
+# sensitive lives in this file.
+
+app:
+  mode: reviews # aligns with Frigate 0.14+'s alerts/detections review model
+
+frigate:
+  server: http://frigate:5000 # container-to-container, same compose network
+  webapi:
+    enabled: true
+    interval: 30
+
+alerts:
+  general:
+    # Only notify on Frigate's "alerts" review items, not plain "detections" --
+    # keeps the channel from being noisy before zones/tuning (Steps 08, 10).
+    notify_detections: false
+  zones:
+    # No zones drawn yet (Step 08 pending), so don't filter by zone.
+    unzoned: allow
+  telegram:
+    enabled: true
+    send_clip: true

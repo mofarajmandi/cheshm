@@ -22,3 +22,19 @@ services:
       - ./config:/config
       - /etc/localtime:/etc/localtime:ro
       - /mnt/nvr:/media/frigate/recordings
+
+  frigate-notify:
+    container_name: frigate-notify
+    image: ghcr.io/0x2142/frigate-notify:latest
+    restart: unless-stopped
+    depends_on:
+      - frigate
+    environment:
+      # Frigate's own admin login, so frigate-notify can poll its API --
+      # NOT the camera's RTSP/ONVIF credentials.
+      FN_FRIGATE__USERNAME: ${FRIGATE_ADMIN_USER}
+      FN_FRIGATE__PASSWORD: ${FRIGATE_ADMIN_PASSWORD}
+      FN_ALERTS__TELEGRAM__TOKEN: ${TELEGRAM_BOT_TOKEN}
+      FN_ALERTS__TELEGRAM__CHATID: ${TELEGRAM_CHAT_ID}
+    volumes:
+      - ./frigate-notify/config.yml:/app/config.yml

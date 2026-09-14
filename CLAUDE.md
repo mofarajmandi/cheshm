@@ -113,15 +113,75 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
   Intel iGPU currently shows up in `lspci` at all (likely disabled in BIOS,
   not physically absent — this is a Kaby Lake/LGA1151 board, which commonly
   supports running the iGPU alongside a discrete GPU via a BIOS setting like
-  "iGPU Multi-Monitor" or "Primary Display: Auto/IGPU/PEG"). Two separate
-  things to check if the GTX 1070 turns out to be unreliable under Frigate
-  (Step 06):
+  "iGPU Multi-Monitor" or "Primary Display: Auto/IGPU/PEG"). Step 06 is
+  settled and the GTX 1070 is stable, so this is now a **contingency only** --
+  two things to check if the GPU ever becomes unreliable:
   1. Check BIOS for that setting — if enabled, the iGPU should reappear in
      `lspci` and become usable as Frigate's OpenVINO GPU device.
   2. Independent of the iGPU: OpenVINO's CPU backend is a distinct option
      from Frigate's default plain-CPU (tflite) detector and is typically
      faster. Worth benchmarking against the GTX 1070's numbers in Step 06
      rather than treating "no iGPU" as "no OpenVINO."
+
+## Notifications (Step 09 -- working)
+
+- `frigate-notify` (separate container, `ghcr.io/0x2142/frigate-notify`)
+  polls Frigate's **REST API** every 30s -- MQTT is not needed and stays
+  disabled.
+- Config lives in `frigate-notify/config.yml`, deliberately its own directory
+  rather than `config/` (which is gitignore-whitelisted to Frigate's own
+  `config.yml`, since Frigate dumps runtime state and secrets there).
+- **No secrets in that file.** They're injected as `FN_`-prefixed env vars in
+  docker-compose.yml; frigate-notify maps `FN_A__B__C` -> `a.b.c` (double
+  underscore per level of nesting).
+- It authenticates to Frigate with **Frigate's own admin login**
+  (`FRIGATE_ADMIN_USER` / `FRIGATE_ADMIN_PASSWORD` in `.env`) -- a completely
+  different credential from the camera's Camera Account. Easy to confuse.
+- `app.mode: reviews` + `notify_detections: false` means only Frigate's
+  *alert*-severity review items reach Telegram, not plain detections.
+- It de-duplicates per zone, so a single ongoing event notifies once rather
+  than on every poll. With no zones drawn yet the zone is empty; revisit the
+  zone filters in `frigate-notify/config.yml` once Step 08 lands.
+
+## Boot & power resilience (Step 11 -- pending)
+
+Hardware context: this box is an **OMEN by HP Desktop PC 880-p0xx** (HP board
+8307, BIOS F.05 / 2017-07-03).
+
+Audited 2026-09-13, already correct:
+
+- `docker`, `containerd`, `tailscaled` are all `enabled` at boot and active.
+- Both containers use `restart: unless-stopped`. Note this deliberately does
+  *not* restart containers stopped by hand -- correct behaviour here, but not
+  the same as `always`.
+- `/mnt/nvr` has an `/etc/fstab` entry, so it mounts at boot.
+- Tailscale auth state persists across reboots; the camera reconnecting is
+  self-healing since Frigate retries ffmpeg indefinitely, so boot ordering
+  between router, camera and server doesn't matter.
+
+Still to do:
+
+1. **BIOS: power on after AC loss.** Consumer desktops often default to
+   staying off when mains power returns. Look for "After Power Loss" /
+   "AC Power Recovery" and set to *Power On*. Not settable from Linux.
+   Do this in the same BIOS trip as the iGPU check in "Future / open items".
+2. **Disable Tailscale key expiry** for this node (currently expires
+   **2027-03-08**). When it lapses, the box drops off the tailnet and remote
+   access dies with no obvious cause. Admin console -> Machines -> `mamadml`.
+3. **Harden the `/mnt/nvr` mount.** Current entry uses `defaults`, so a disk
+   that fails to mount can drop the boot into emergency mode -- unreachable
+   even over Tailscale. But bare `nofail` is worse in a subtler way: the host
+   boots, `/mnt/nvr` is an empty dir on the OS disk (~110GB), and Frigate
+   records onto it until full. Do both: `nofail` in fstab, *plus*
+   `RequiresMountsFor=/mnt/nvr` on `docker.service` (via `systemctl edit`) so
+   the host boots reachable but Frigate won't start degraded.
+4. **UPS** -- none attached. Optional; protects against unclean shutdown
+   mid-write, which is the main threat to already-recorded footage.
+
+Then verify for real: cut power at the wall (not `sudo reboot` -- a clean
+shutdown exercises none of the interesting failure modes) and confirm live
+view, a mounted and growing `/mnt/nvr`, and a Telegram alert all come back
+with no keyboard involved.
 
 ## Runbook checklist
 
@@ -137,5 +197,8 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
       Check back after 24h: scrub through yesterday's footage in the UI, and
       confirm measured GB/day is within ~20% of the ~11.75GB/day estimate.
 - [ ] 08. Home preset, then zones
-- [ ] 09. Telegram
+- [x] 09. Telegram (alerts confirmed arriving; zone filtering still to come
+      with Step 08)
 - [ ] 10. Tune for a week, then scale
+- [ ] 11. Make it survive the power going out — see "Boot & power resilience"
+      below
