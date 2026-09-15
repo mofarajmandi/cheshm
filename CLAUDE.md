@@ -105,6 +105,8 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
   ~15.5KB each, ~68MB at 430 events/day over the 10-day retention. Needed
   because the only per-event image before this was a 175x175 thumbnail crop.
   Settings and caveats are commented in `config/config.yml`.
+- Semantic Search on (2026-09-15), jinav1 / `large` on the GPU. See its own
+  section below.
 
 ## Conventions
 
@@ -220,6 +222,61 @@ Two notes:
   falls back to `frigate.server` (`http://frigate:5000`) and the links were
   dead off-host. To restore them, set `public_url` to the Tailscale URL, never
   a public one.
+
+## Semantic Search (2026-09-15)
+
+Embeds every **tracked object** with Jina CLIP v1 so Explore can be searched
+by natural language ("a person holding a phone") or by image ("Find Similar").
+It indexes *tracked objects only* -- not continuous footage -- so the four
+labels under `objects.track` are the entire searchable universe.
+
+- `model: jinav1`, not v2. v2 only adds multilingual search (89 languages) and
+  the docs call its RAM/GPU cost "significantly" higher; this box has 15GB
+  against a documented 8GB minimum / 16GB recommended. The two models'
+  embeddings are **incompatible** -- switching later forces a full reindex.
+- `model_size: large` runs the full model on the GTX 1070 instead of the
+  quantized CPU copy. **This only works because we run the `-tensorrt`
+  image** -- Nvidia enrichment acceleration is automatic there, but on the
+  plain `stable` image the same config silently falls back to CPU.
+- Models download once from HuggingFace into `config/model_cache/jinaai/`:
+  `text_model_fp16.onnx` (274MB) + `vision_model_fp16.onnx` (172MB) +
+  tokenizer, 428MB total, on the OS disk and gitignored with the rest of
+  `config/*`. First start needs internet; after that it's offline.
+- Vectors live in `frigate.db` via **sqlite-vec**, in `vec_thumbnails` and
+  `vec_descriptions`. Those are virtual tables, so a plain `sqlite3` without
+  the extension fails with `no such module: vec0` -- count rows via the
+  shadow table `vec_thumbnails_rowids` instead.
+- **Reindex is a one-shot.** Enabling the feature does *not* index existing
+  objects, so `reindex: true` was set once to backfill, then set back to
+  false. Left true, it re-embeds everything on every restart. The backfill of
+  682 objects took ~2 minutes. The UI has the same button under Settings ->
+  Enrichments.
+- `vec_descriptions` is empty and stays that way without `genai`. Descriptions
+  need a vision LLM (Ollama/llama.cpp locally, or Gemini/OpenAI in the cloud)
+  under the `descriptions` role. Deliberately not enabled: a local model
+  competes with the detector for the 1070's VRAM, and a cloud one ships
+  indoor-camera frames to a third party, which is against the spirit of the
+  "never expose Frigate to the internet" convention.
+
+Measured cost after enabling (vs. the Step 06 baseline):
+
+| | before | after |
+|---|---|---|
+| detector inference | ~12.4ms | ~13.1ms |
+| GPU memory | 375MiB | ~700MiB-1.3GB |
+| host RAM used | 4.3GB | 5.8GB (10GB still free) |
+
+Text embedding for a search query measures ~126ms, which is per-search, not
+per-frame. Image embedding happens once per tracked object as it ends.
+
+**Triggers** (0.18) are the other half of this feature: per-camera rules that
+fire when a new object's embedding matches a reference thumbnail above a
+threshold (0.6-0.8 recommended), with actions `notification`, `sub_label` or
+`attribute`. Not set up yet. Note the `notification` action is Frigate's own
+web push, which this setup doesn't use -- frigate-notify won't see it. A
+`sub_label` action does reach the API, so it can be surfaced in the Telegram
+template. The docs advise thumbnail triggers over description triggers
+("embedding drift", "lack of true semantic grounding").
 
 ## Boot & power resilience (Step 11 -- pending)
 
