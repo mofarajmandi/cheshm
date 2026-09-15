@@ -47,18 +47,18 @@ record:
 cameras:
   cam1: # rename to something meaningful once you've picked a spot for it
     onvif:
-      host: "{FRIGATE_CAMERA_IP}"
+      host: '{FRIGATE_CAMERA_IP}'
       port: 2020
-      user: "{FRIGATE_RTSP_USER}"
-      password: "{FRIGATE_RTSP_PASS}"
+      user: '{FRIGATE_RTSP_USER}'
+      password: '{FRIGATE_RTSP_PASS}'
     ffmpeg:
       inputs:
-        - path:
+        - path: 
             rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASS}@{FRIGATE_CAMERA_IP}:554/stream2
           input_args: preset-rtsp-generic
           roles:
             - detect
-        - path:
+        - path: 
             rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASS}@{FRIGATE_CAMERA_IP}:554/stream1
           input_args: preset-rtsp-generic
           roles:
@@ -73,3 +73,26 @@ cameras:
     snapshots:
       enabled: false
 version: 0.18-0
+
+# Global, so cameras 2 and 3 inherit it when they're added. Frigate's default
+# is ["person"] only. These four are all in the coco-80 labelmap the yolov9-s
+# model uses (person=0, bird=14, cat=15, dog=16).
+#
+# This does NOT add Telegram noise: review.alerts.labels is left at its default
+# ["person", "car"], so dog/cat/bird are categorized as *detection* severity
+# (frigate/review/maintainer.py), and frigate-notify drops those via
+# notify_detections: false. They do get folded into an alert if they share the
+# frame with a person. Detector cost is unchanged -- the model already infers
+# all 80 classes every frame, `track` only filters which results are kept.
+objects:
+  track:
+    - person
+    - cat
+    - dog
+    - bird
+
+# jsmpeg live view in the web UI only -- not recordings, detection, or RTSP.
+# Scale is 1 (best) to 31 (worst), default 8, so this is slightly higher
+# quality at the cost of a little CPU and bandwidth while viewing live.
+live:
+  quality: 6
