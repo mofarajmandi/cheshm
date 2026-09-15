@@ -39,6 +39,12 @@ services:
     depends_on:
       - frigate
     environment:
+      # This image has no /etc/localtime (it's a scratch image -- no shell, no
+      # coreutils), so Go's time.Local fell back to UTC and every Telegram
+      # alert was stamped in UTC. It does ship full tzdata at
+      # /usr/share/zoneinfo, so setting TZ is enough; no mount needed. Frigate
+      # itself gets this from its /etc/localtime mount instead.
+      TZ: America/Halifax
       # Frigate's own admin login, so frigate-notify can poll its API --
       # NOT the camera's RTSP/ONVIF credentials.
       FN_FRIGATE__USERNAME: ${FRIGATE_ADMIN_USER}
