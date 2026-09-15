@@ -214,6 +214,12 @@ Two notes:
 - Restarting the container clears the dedup cache, so an event that is still
   in progress across the restart will notify a second time. Harmless, but
   expect one duplicate per restart.
+- The Telegram message uses a **custom template** (`alerts.telegram.template`),
+  not the built-in one -- that one emits a blank line per non-applicable field.
+  It drops the Links line: `frigate.public_url` is unset, so frigate-notify
+  falls back to `frigate.server` (`http://frigate:5000`) and the links were
+  dead off-host. To restore them, set `public_url` to the Tailscale URL, never
+  a public one.
 
 ## Boot & power resilience (Step 11 -- pending)
 
