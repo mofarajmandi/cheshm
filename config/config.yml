@@ -70,8 +70,6 @@ cameras:
       fps: 5
     record:
       enabled: true
-    snapshots:
-      enabled: false
 version: 0.18-0
 
 # Global, so cameras 2 and 3 inherit it when they're added. Frigate's default
@@ -96,3 +94,27 @@ objects:
 # quality at the cost of a little CPU and bandwidth while viewing live.
 live:
   quality: 6
+
+# Global, so cameras 2 and 3 inherit it. Without this, every event only had a
+# 175x175 thumbnail crop; a snapshot is the full 1280x720 detect frame, so the
+# UI's Events/Explore views and /api/events/<id>/snapshot.jpg (which used to
+# 404 on everything) now have a real image to show.
+#
+# Stored clean at /media/frigate/clips/<camera>-<event_id>-clean.webp -- the
+# bounding box, timestamp and crop options are applied at *render* time, not
+# baked into the stored file, so the UI and frigate-notify can each request
+# different overlays of the same image.
+#
+# Defaults left alone: quality 60 (measured ~15.5KB per snapshot on this
+# camera) and retain.default 10 days. At ~430 events/day that's ~68MB steady
+# state, which is nothing against 409GB free. This only lives on the NVR disk
+# because of the /media/frigate mount fix; before that it would have gone to
+# the OS disk and been wiped on every container recreate.
+#
+# Note this is NOT a fallback for an in-progress event: has_snapshot is only
+# populated when an event ends (frigate/track/object_processing.py), and
+# frigate-notify only fetches a snapshot when has_snapshot is true. The
+# text-only-alert fix is recheck_delay in frigate-notify/config.yml, not this.
+# Revisit required_zones here once Step 08 lands.
+snapshots:
+  enabled: true

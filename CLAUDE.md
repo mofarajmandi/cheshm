@@ -93,10 +93,18 @@ indoor pan/tilt camera. Following the "Sentry Runbook" ten-step build plan.
 
 - Standalone Frigate, no Home Assistant.
 - Detect on the sub stream, record the main stream with no re-encode.
-- Retention: continuous 7 days, motion 30 days, alerts 60 days.
+- Retention: continuous 7 days, motion 30 days, alerts 60 days. Snapshots are
+  a separate tier at Frigate's default 10 days.
 - Alerts via Telegram, using the `frigate-notify` container.
 - Camera's Motion Tracking feature stays off — zones are drawn once against a
   static framing (a saved "home" preset).
+- Tracked objects: person, cat, dog, bird (Frigate's default is person only).
+  Set globally so future cameras inherit. Pets do not add Telegram noise --
+  see the `recheck_delay` note under Notifications for why.
+- Snapshots on (2026-09-14), also global. Full 1280x720 event frames at
+  ~15.5KB each, ~68MB at 430 events/day over the 10-day retention. Needed
+  because the only per-event image before this was a 175x175 thumbnail crop.
+  Settings and caveats are commented in `config/config.yml`.
 
 ## Conventions
 
@@ -130,9 +138,10 @@ Everything Frigate writes now lives on `sda3`:
 
 ```
 /mnt/nvr/recordings/<date>/<hour>/<camera>/  video segments
+/mnt/nvr/clips/<camera>-<event_id>-clean.webp  full-frame event snapshots
 /mnt/nvr/clips/previews/                     hourly timeline preview mp4s
 /mnt/nvr/clips/review/                       review-item thumbs (.webp)
-/mnt/nvr/clips/thumbs/                       per-event thumbs (.webp)
+/mnt/nvr/clips/thumbs/                       per-event thumbs (.webp, 175x175)
 /mnt/nvr/clips/preview_restart_cache/        written at shutdown, consumed at boot
 /mnt/nvr/exports/                            manual exports
 ```
@@ -190,13 +199,18 @@ Two notes:
   specified time range", `frigate/api/media.py`) until the recording segments
   covering the event are committed to the `recordings` table -- measured at
   **~12s behind live**. frigate-notify's `GetClip` only retries on 404, not
-  400, so it gave up instantly. Its next fallback is the snapshot, which is
-  also unavailable here (`snapshots: enabled: false`), so it dropped to a
-  plain-text message. Enabling Frigate snapshots would restore that fallback
-  as belt-and-braces -- the mount fix above unblocked it, so it's now just a
-  config change, but it hasn't been done yet. The 20s delay clears the segment
-  lag; alert latency goes from ~15s to ~60s worst case (30s poll + 20s delay),
-  which is fine here.
+  400, so it gave up instantly. Its next fallback is the snapshot, which was
+  also unavailable at the time (snapshots were disabled), so it dropped to a
+  plain-text message. The 20s delay clears the segment lag; alert latency goes
+  from ~15s to ~60s worst case (30s poll + 20s delay), which is fine here.
+- **Snapshots are not a substitute for `recheck_delay`.** An earlier note here
+  claimed enabling them was belt-and-braces for this bug; that overstated it.
+  `has_snapshot` is only populated when an event *ends*
+  (`frigate/track/object_processing.py`, the `end()` callback), and
+  frigate-notify only fetches a snapshot when `has_snapshot` is true
+  (`notifier/alerts.go`). So a still-running event has no snapshot to fall
+  back on either. Snapshots only cover a *completed* event whose clip fetch
+  fails for some other reason. `recheck_delay` is what actually fixes this.
 - Restarting the container clears the dedup cache, so an event that is still
   in progress across the restart will notify a second time. Harmless, but
   expect one duplicate per restart.
