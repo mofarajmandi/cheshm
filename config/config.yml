@@ -118,3 +118,32 @@ live:
 # Revisit required_zones here once Step 08 lands.
 snapshots:
   enabled: true
+
+# Semantic Search (Frigate 0.16+). Embeds every *tracked object* -- not
+# continuous footage -- so Explore can be searched by text ("person carrying a
+# box") or by image ("Find Similar"). Only the four tracked labels above are
+# ever embedded.
+#
+# jinav1 over jinav2: v2 only buys multilingual search (89 languages) and the
+# docs call its RAM/GPU cost "significantly" higher. This box has 15GB total
+# against a documented 8GB minimum / 16GB recommended, so v1 is the safe side.
+# The two models' embeddings are incompatible -- switching later forces a full
+# reindex.
+#
+# model_size: large runs the full model on the GTX 1070; small is a quantized
+# CPU version. Large is nearly free here (GPU sits at ~5% / 375MiB for the
+# detector) and it only works because we're on the *-tensorrt* image -- Nvidia
+# enrichment acceleration is automatic there, but on the plain `stable` image
+# this would silently fall back to CPU.
+#
+# Models are pulled once from HuggingFace into /config/model_cache/ (OS disk,
+# already gitignored); the vectors live in frigate.db via sqlite-vec.
+#
+# reindex is a one-shot: enabling semantic search does NOT index pre-existing
+# tracked objects, so it was flipped true once to backfill, then back to false
+# -- left true, it re-embeds everything on every restart.
+semantic_search:
+  enabled: true
+  model: jinav1
+  model_size: large
+  reindex: false
