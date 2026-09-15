@@ -32,3 +32,38 @@ alerts:
   telegram:
     enabled: true
     send_clip: true
+    # Custom message template, replacing frigate-notify's built-in Markdown
+    # one. Three things differ from the default:
+    #
+    # 1. No blank lines. The default puts each optional field on its own
+    #    source line -- `{{ if ... }}Sublabel(s): ...{{ end }}` followed by a
+    #    newline that sits OUTSIDE the conditional. So every field that
+    #    doesn't apply (sublabel, license plate, audio, zone) still emits its
+    #    newline, and the message ends up with four blank lines under
+    #    Label(s). Here each `{{ end }}` is pulled onto the start of the next
+    #    line so the newline lives inside the conditional and disappears
+    #    with it.
+    # 2. No links. frigate-notify builds them from `frigate.public_url`,
+    #    which isn't set, so it falls back to `frigate.server` --
+    #    http://frigate:5000, a compose-network name that resolves nowhere
+    #    off this host. The links were dead on the phone. To bring them back,
+    #    set `frigate.public_url` to the Tailscale URL
+    #    (https://mamadml.tail12c2c3.ts.net:8971) and restore the Links line
+    #    from the default template; do NOT point it at a public address.
+    # 3. No "No snapshot available." That line exists for providers where
+    #    the snapshot IS the notification's image (email/HTML) or where no
+    #    clip is sent -- it explains a missing picture. Here `send_clip:
+    #    true` means the payload is always the video, so the line never
+    #    explained anything. It showed up on still-running events, because
+    #    Frigate only sets `has_snapshot` when an event ends.
+    #
+    # Sublabel/license-plate/audio lines from the default are dropped too --
+    # nothing in this setup populates them (no face or plate recognition, no
+    # audio detection). Re-add them from the default template if that
+    # changes. The Zone(s) line is kept for Step 08.
+    template: |-
+      Detection at {{ .Extra.FormattedTime }}
+      Camera: {{ .Extra.CameraName }}
+      {{ if ge (len .Extra.LabelList) 1 }}Label(s): {{ .Extra.LabelList }}
+      {{ end }}{{ if ge (len .Zones) 1 }}Zone(s): {{ .Extra.ZoneList }}
+      {{ end }}
