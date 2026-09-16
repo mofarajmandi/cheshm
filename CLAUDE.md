@@ -262,12 +262,21 @@ Measured cost after enabling (vs. the Step 06 baseline):
 
 | | before | after |
 |---|---|---|
-| detector inference | ~12.4ms | ~13.1ms |
+| detector inference | ~12.4ms | ~12.8-13.3ms |
 | GPU memory | 375MiB | ~700MiB-1.3GB |
-| host RAM used | 4.3GB | 5.8GB (10GB still free) |
+| host RAM used | 4.3GB | ~6.2GB (9.7GB still free, swap untouched) |
+
+The embeddings process is now the **largest single consumer on the box at
+~2.7GB RSS** -- bigger than the detector's ~900MB. It's a fixed cost (one
+model, not one per camera), so it shouldn't grow when cameras 2 and 3 arrive,
+but it's the number to watch if RAM ever gets tight.
 
 Text embedding for a search query measures ~126ms, which is per-search, not
-per-frame. Image embedding happens once per tracked object as it ends.
+per-frame. Image embedding happens once per tracked object **as it ends**, and
+its reported speed is a smoothed average: it read 1320ms on the first
+inference after a restart and fell to ~646ms over the next 7 objects, so the
+cold-start sample dominates and true steady state is lower. Pascal's weak fp16
+throughput is NOT the bottleneck it first looked like.
 
 **Triggers** (0.18) are the other half of this feature: per-camera rules that
 fire when a new object's embedding matches a reference thumbnail above a
