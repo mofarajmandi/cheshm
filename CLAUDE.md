@@ -287,6 +287,66 @@ web push, which this setup doesn't use -- frigate-notify won't see it. A
 template. The docs advise thumbnail triggers over description triggers
 ("embedding drift", "lack of true semantic grounding").
 
+## When Frigate stops working: triage
+
+Start here rather than re-deriving it. `./scripts/collect-diagnostics.sh`
+collects everything below in one read-only pass -- it changes nothing, prints
+no secrets, and is safe to run while the system is broken.
+
+The first question splits the tree, and it is the one worth answering before
+touching anything: **does the Frigate UI load with the camera offline, or is
+the box itself unreachable?**
+
+**UI loads, camera offline.** The problem is upstream of Frigate. In order of
+what has actually happened here:
+
+1. *The camera's IP moved.* `CAMERA_IP` in `.env` is a literal address and
+   there is no DHCP reservation, so a lease change silently breaks every RTSP
+   and ONVIF URL at once. `ip neigh show` finds what is on the LAN now.
+2. *The wireless link degraded.* Measured 2026-09-17: 29% packet loss and
+   110-154ms after the camera moved mesh nodes, against 0.5% / 28ms before.
+   This is also the cause of the green-screen corruption -- see below.
+3. *The camera hung.* Tapo firmware occasionally stops serving RTSP while
+   still answering ping. Port 554 refusing a TCP connection while ICMP
+   succeeds is the signature; a power-cycle clears it.
+
+**Box unreachable.** Almost certainly boot, not Frigate. Step 11 below is the
+open work; until it lands, the two live hazards are that nothing brings the
+machine back after a power cut, and that a `/mnt/nvr` that fails to mount
+drops the boot into emergency mode.
+
+**UI loads, camera fine, but nothing records.** Check `/mnt/nvr` is mounted
+(`mountpoint /mnt/nvr`, not `df`) and has space. See the mount guard below.
+
+**Container restarting in a loop.** Check `nvidia-smi` and then `dkms status`.
+The Nvidia module is DKMS-built here, so a kernel upgrade that fails to
+rebuild it takes the GPU away; because compose reserves an nvidia device,
+Frigate then fails at container *creation*, not at detection.
+
+### Green-screen corruption is a radio problem, not a config one
+
+Worth recording so it is not re-investigated: `preset-rtsp-generic` already
+sets `-rtsp_transport tcp`, `-fflags +genpts+discardcorrupt` and a 10s
+timeout (verified against `frigate/ffmpeg_presets.py` at v0.18.0). There is no
+preset left to switch to. TCP means lost packets are retransmitted rather than
+dropped, so severe loss shows up as the stream falling behind and Frigate
+reconnecting -- which matches the observed 20s gap -- with corruption on the
+segments either side.
+
+The fix is the link: move the camera back to the node it was on, run it wired,
+or add a mesh node. The one config lever, if the link cannot be fixed quickly,
+is to record `stream2` instead of `stream1`: ~190kbps against ~1.09Mbps is
+roughly six times less data to lose, at 1280x720 instead of 2304x1296. That is
+a deliberate quality downgrade, so it is a decision, not a default.
+
+### Images are pinned
+
+`docker-compose.yml` pins exact versions rather than `stable-tensorrt` and
+`latest`, so an unrelated `docker compose pull` can no longer move Frigate
+underneath a config file written for the previous version. Verified
+2026-09-18: the pinned tags resolved to the same digests the floating tags
+did, so pinning changed nothing about what runs.
+
 ## Boot & power resilience (Step 11 -- pending)
 
 Hardware context: this box is an **OMEN by HP Desktop PC 880-p0xx** (HP board
@@ -317,8 +377,29 @@ Still to do:
    even over Tailscale. But bare `nofail` is worse in a subtler way: the host
    boots, `/mnt/nvr` is an empty dir on the OS disk (~110GB), and Frigate
    records onto it until full. Do both: `nofail` in fstab, *plus*
-   `RequiresMountsFor=/mnt/nvr` on `docker.service` (via `systemctl edit`) so
-   the host boots reachable but Frigate won't start degraded.
+   `RequiresMountsFor=/mnt/nvr` on `docker.service` so the host boots
+   reachable but Frigate won't start degraded.
+
+   **Now scripted**, so this is a command rather than a procedure:
+
+   ```
+   ./scripts/install-host-hardening.sh            # dry run, shows the diff
+   sudo ./scripts/install-host-hardening.sh --apply
+   ```
+
+   It adds `nofail,x-systemd.device-timeout=30` to the fstab line (backing the
+   file up first and verifying the result with `findmnt --verify`), installs
+   `host/docker.service.d/10-require-nvr-mount.conf`, and creates the
+   `/mnt/nvr/.nvr-disk` sentinel. It refuses to write that sentinel while
+   `/mnt/nvr` is unmounted, since that would put it on the OS disk and
+   permanently certify the exact condition it exists to detect.
+
+   There is a second lock in `docker-compose.yml`: the `nvr-mount-guard`
+   service tests for that sentinel and blocks Frigate from starting without
+   it. Note the division of labour -- the guard covers `docker compose up`,
+   but **not** an unattended reboot, because the daemon honours restart
+   policies without consulting `depends_on`. The systemd drop-in is what
+   covers the boot path. Both are wanted.
 4. **UPS** -- none attached. Optional; protects against unclean shutdown
    mid-write, which is the main threat to already-recorded footage.
 
@@ -345,4 +426,6 @@ with no keyboard involved.
       with Step 08)
 - [ ] 10. Tune for a week, then scale
 - [ ] 11. Make it survive the power going out — see "Boot & power resilience"
-      below
+      below. Item 3 (the `/mnt/nvr` mount) is scripted and ready to apply;
+      items 1 (BIOS power-on after AC loss) and 2 (Tailscale key expiry) are
+      still by hand.

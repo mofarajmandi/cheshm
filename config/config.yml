@@ -52,6 +52,16 @@ cameras:
       user: '{FRIGATE_RTSP_USER}'
       password: '{FRIGATE_RTSP_PASS}'
     ffmpeg:
+      # preset-rtsp-generic already carries -rtsp_transport tcp,
+      # -fflags +genpts+discardcorrupt and a 10s timeout, so there is no
+      # preset left to switch to if the stream corrupts. Green-screen
+      # artifacts here mean packet loss on the wireless link, not a setting;
+      # see "Green-screen corruption is a radio problem" in CLAUDE.md.
+      #
+      # If the link cannot be fixed quickly, the one lever is to move the
+      # `record` role onto stream2 (~190kbps, 1280x720) instead of stream1
+      # (~1.09Mbps, 2304x1296) -- six times less data to lose, at lower
+      # resolution. That is a deliberate quality downgrade, not a default.
       inputs:
         - path: 
             rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASS}@{FRIGATE_CAMERA_IP}:554/stream2
